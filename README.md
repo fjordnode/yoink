@@ -2,9 +2,11 @@
 
 A clipboard manager TUI for Wayland/Hyprland. Wraps [cliphist](https://github.com/sentriz/cliphist) with a two-pane interface — list on the left, preview on the right — with image previews via the Kitty graphics protocol.
 
-<a href="screenshots/yoink-text-preview.png"><img src="screenshots/yoink-text-preview.png" width="280"></a>
-<a href="screenshots/yoink-image-preview.png"><img src="screenshots/yoink-image-preview.png" width="280"></a>
-<a href="screenshots/yoink-fullscreen.png"><img src="screenshots/yoink-fullscreen.png" width="280"></a>
+<p>
+  <img src="screenshots/yoink-text-preview.png" width="32%">
+  <img src="screenshots/yoink-image-preview.png" width="32%">
+  <img src="screenshots/yoink-fullscreen.png" width="32%">
+</p>
 
 ## Features
 
