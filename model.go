@@ -62,7 +62,7 @@ func (m *model) applyFilter() {
 		copy(m.filtered, m.entries)
 		m.matchIndices = make([][]int, len(m.entries))
 	} else {
-		query := strings.ToLower(m.searchInput)
+		queryRunes := []rune(strings.ToLower(m.searchInput))
 		m.filtered = nil
 		m.matchIndices = nil
 		for _, e := range m.entries {
@@ -70,14 +70,14 @@ func (m *model) applyFilter() {
 			if e.IsImage {
 				displayText = "[IMAGE] " + e.ImageDim
 			}
-			lower := strings.ToLower(displayText)
-			idx := strings.Index(lower, query)
+			lowerRunes := []rune(strings.ToLower(displayText))
+			idx := runeIndex(lowerRunes, queryRunes)
 			if idx < 0 {
 				continue
 			}
 			m.filtered = append(m.filtered, e)
-			// Build match indices for the found substring
-			indices := make([]int, len(query))
+			// Build match indices for the found substring (rune-based)
+			indices := make([]int, len(queryRunes))
 			for j := range indices {
 				indices[j] = idx + j
 			}
@@ -212,7 +212,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Everything else falls through to actions/nav.
 		if msg.Type == tea.KeyBackspace {
 			if len(m.searchInput) > 0 {
-				m.searchInput = m.searchInput[:len(m.searchInput)-1]
+				runes := []rune(m.searchInput)
+				m.searchInput = string(runes[:len(runes)-1])
 				m.applyFilter()
 				m.prevCursor = -1
 				return m, m.imageCmd()
@@ -291,9 +292,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case keyPin:
 			if e := m.selectedEntry(); e != nil {
+				selectedID := e.ID
 				m.meta.togglePin(e.ID)
 				_ = m.meta.save()
 				m.applyFilter()
+				for i, fe := range m.filtered {
+					if fe.ID == selectedID {
+						m.cursor = i
+						break
+					}
+				}
 			}
 
 		default:
@@ -481,8 +489,9 @@ func (m model) renderList(width, height int) string {
 		if maxLen < 10 {
 			maxLen = 10
 		}
-		if len(preview) > maxLen {
-			preview = preview[:maxLen-1] + "…"
+		previewRunes := []rune(preview)
+		if len(previewRunes) > maxLen {
+			preview = string(previewRunes[:maxLen-1]) + "…"
 		}
 
 		// Highlight fuzzy match characters
@@ -561,6 +570,26 @@ func (m model) renderPreview(width, height int) string {
 	}
 
 	return renderTextPreview(*entry, width, height)
+}
+
+// runeIndex finds the first occurrence of needle in haystack (rune slices).
+func runeIndex(haystack, needle []rune) int {
+	if len(needle) == 0 {
+		return 0
+	}
+	for i := 0; i <= len(haystack)-len(needle); i++ {
+		match := true
+		for j := range needle {
+			if haystack[i+j] != needle[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
+	}
+	return -1
 }
 
 func (m model) visibleItems() int {

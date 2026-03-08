@@ -24,6 +24,7 @@ A clipboard manager TUI for Wayland/Hyprland. Wraps [cliphist](https://github.co
 - [wl-copy](https://github.com/bugaevc/wl-clipboard) — Wayland clipboard
 - [hyprctl](https://wiki.hyprland.org/) — window management
 - [wtype](https://github.com/atx/wtype) — keyboard simulation for paste-back
+- [jq](https://jqlang.github.io/jq/) — JSON processing (used by paste-back and watcher)
 - A terminal with [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) support (Kitty, Ghostty, etc.) for image previews
 
 ## Install

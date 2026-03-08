@@ -45,6 +45,11 @@ func pasteToWindow(sw SourceWindow, rawLine string) {
 		return
 	}
 
+	// Only paste-back if we have a valid source window to target
+	if sw.Address == "" {
+		return
+	}
+
 	// Fork detached process that waits for our kitty window to close,
 	// then focuses source and pastes
 	script := buildPasteScript(sw)
