@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/muesli/reflow/wordwrap"
+	"github.com/muesli/reflow/wrap"
 )
 
 // renderTextPreview decodes and word-wraps text for the preview pane.
@@ -19,24 +22,10 @@ func renderTextPreview(entry ClipEntry, width, height int) string {
 		return dimStyle().Render("(empty)")
 	}
 
-	var lines []string
-	for _, line := range strings.Split(text, "\n") {
-		if len(line) <= width {
-			lines = append(lines, line)
-		} else {
-			for len(line) > width {
-				lines = append(lines, line[:width])
-				line = line[width:]
-			}
-			if line != "" {
-				lines = append(lines, line)
-			}
-		}
-		if len(lines) >= height {
-			break
-		}
-	}
+	// Word wrap at boundaries, then hard-break long unbreakable strings
+	wrapped := wrap.String(wordwrap.String(text, width), width)
 
+	lines := strings.Split(wrapped, "\n")
 	if len(lines) > height {
 		lines = lines[:height]
 	}

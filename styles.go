@@ -38,7 +38,6 @@ func loadTheme() {
 	_, _ = toml.DecodeFile(p, &theme)
 }
 
-// Style helpers
 func accentStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Accent))
 }
@@ -47,46 +46,26 @@ func dimStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Color8))
 }
 
+// veryDimStyle is slightly muted + italic — for timestamps and secondary info.
+func veryDimStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Color8)).Italic(true)
+}
+
 func fgStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Foreground))
 }
 
-func selectedStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.SelectionForeground)).
-		Background(lipgloss.Color(theme.SelectionBackground))
-}
-
-func dimSelectedStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Color8)).
-		Background(lipgloss.Color(theme.SelectionBackground))
-}
-
-func searchStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Foreground)).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(theme.Color8)).
-		Padding(0, 1)
+func selectedFgStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Foreground)).Bold(true)
 }
 
 func previewBorderStyle() lipgloss.Style {
+	thin := lipgloss.Border{Left: "▏"}
 	return lipgloss.NewStyle().
 		BorderLeft(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(theme.Color8)).
+		BorderStyle(thin).
+		BorderForeground(lipgloss.Color(theme.Accent)).
 		PaddingLeft(1)
-}
-
-func helpStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Color8))
-}
-
-func helpKeyStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Accent))
 }
 
 func statusStyle() lipgloss.Style {

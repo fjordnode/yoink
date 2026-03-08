@@ -8,15 +8,16 @@ import (
 )
 
 // cliphist format: [[ binary data 169 KiB png 988x606 ]]
-var imagePattern = regexp.MustCompile(`^\[\[ binary data .+ (\w+) (\d+x\d+) \]\]$`)
+var imagePattern = regexp.MustCompile(`^\[\[ binary data (\d+ \w+) (\w+) (\d+x\d+) \]\]$`)
 
 type ClipEntry struct {
-	ID       string // numeric cliphist ID
-	RawLine  string // full line from cliphist list (id\tpreview)
-	Preview  string // preview text (after tab)
-	IsImage  bool
-	ImageFmt string // e.g. "png", "jpg"
-	ImageDim string // e.g. "840x265"
+	ID        string // numeric cliphist ID
+	RawLine   string // full line from cliphist list (id\tpreview)
+	Preview   string // preview text (after tab)
+	IsImage   bool
+	ImageFmt  string // e.g. "png", "jpg"
+	ImageDim  string // e.g. "840x265"
+	ImageSize string // e.g. "169 KiB"
 }
 
 func cliphistList() ([]ClipEntry, error) {
@@ -50,8 +51,9 @@ func parseLine(line string) ClipEntry {
 
 	if m := imagePattern.FindStringSubmatch(e.Preview); m != nil {
 		e.IsImage = true
-		e.ImageFmt = m[1]
-		e.ImageDim = m[2]
+		e.ImageSize = m[1]
+		e.ImageFmt = m[2]
+		e.ImageDim = m[3]
 	}
 
 	return e

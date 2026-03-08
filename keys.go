@@ -12,8 +12,7 @@ const (
 	keyPin
 	keyQuit
 	keySearch
-	keySearchAccept
-	keySearchClear
+	keyFullPreview
 )
 
 func classifyKey(msg tea.KeyMsg) keyAction {
@@ -28,15 +27,12 @@ func classifyKey(msg tea.KeyMsg) keyAction {
 		return keyPin
 	case tea.KeyCtrlY:
 		return keyCopy
+	case tea.KeyTab:
+		return keyFullPreview
 	default:
 		if msg.String() == "/" {
 			return keySearch
 		}
 	}
 	return keyNone
-}
-
-func helpBar() string {
-	return helpKeyStyle().Render("^D") + helpStyle().Render("=delete  ") +
-		helpKeyStyle().Render("^P") + helpStyle().Render("=pin")
 }

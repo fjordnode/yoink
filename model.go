@@ -1,17 +1,18 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sahilm/fuzzy"
 )
 
 type model struct {
 	entries      []ClipEntry
 	filtered     []ClipEntry
+	matchIndices [][]int // fuzzy match character indices per filtered entry
 	meta         *MetadataStore
 	source       SourceWindow
 	cursor       int
@@ -22,6 +23,7 @@ type model struct {
 	pendingPaste string
 	status       string
 	imageShown   bool
+	fullPreview  bool // full-screen image preview mode
 	loaded       bool // whether initial load has completed
 }
 
@@ -58,29 +60,56 @@ func (m *model) applyFilter() {
 	if m.searchInput == "" {
 		m.filtered = make([]ClipEntry, len(m.entries))
 		copy(m.filtered, m.entries)
+		m.matchIndices = make([][]int, len(m.entries))
 	} else {
-		previews := make([]string, len(m.entries))
-		for i, e := range m.entries {
-			previews[i] = e.Preview
-		}
-		matches := fuzzy.Find(m.searchInput, previews)
-		m.filtered = make([]ClipEntry, 0, len(matches))
-		for _, match := range matches {
-			m.filtered = append(m.filtered, m.entries[match.Index])
+		query := strings.ToLower(m.searchInput)
+		m.filtered = nil
+		m.matchIndices = nil
+		for _, e := range m.entries {
+			displayText := e.Preview
+			if e.IsImage {
+				displayText = "[IMAGE] " + e.ImageDim
+			}
+			lower := strings.ToLower(displayText)
+			idx := strings.Index(lower, query)
+			if idx < 0 {
+				continue
+			}
+			m.filtered = append(m.filtered, e)
+			// Build match indices for the found substring
+			indices := make([]int, len(query))
+			for j := range indices {
+				indices[j] = idx + j
+			}
+			m.matchIndices = append(m.matchIndices, indices)
 		}
 	}
 
-	// Pinned first, preserve cliphist order within groups
-	pinned := make([]ClipEntry, 0)
-	unpinned := make([]ClipEntry, 0)
-	for _, e := range m.filtered {
+	// Pinned first, preserve order within groups
+	type entryWithIdx struct {
+		entry   ClipEntry
+		indices []int
+	}
+	var pinnedItems, unpinnedItems []entryWithIdx
+	for i, e := range m.filtered {
+		var indices []int
+		if i < len(m.matchIndices) {
+			indices = m.matchIndices[i]
+		}
+		item := entryWithIdx{entry: e, indices: indices}
 		if m.meta.isPinned(e.ID) {
-			pinned = append(pinned, e)
+			pinnedItems = append(pinnedItems, item)
 		} else {
-			unpinned = append(unpinned, e)
+			unpinnedItems = append(unpinnedItems, item)
 		}
 	}
-	m.filtered = append(pinned, unpinned...)
+	all := append(pinnedItems, unpinnedItems...)
+	m.filtered = make([]ClipEntry, len(all))
+	m.matchIndices = make([][]int, len(all))
+	for i, item := range all {
+		m.filtered[i] = item.entry
+		m.matchIndices[i] = item.indices
+	}
 
 	if m.cursor >= len(m.filtered) {
 		m.cursor = max(0, len(m.filtered)-1)
@@ -150,6 +179,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.imageCmd()
 
 	case tea.KeyMsg:
+		// Full preview mode: arrows cycle images, Enter pastes, other keys exit
+		if m.fullPreview {
+			if classifyKey(msg) == keyPaste {
+				if e := m.selectedEntry(); e != nil {
+					clearKittyImages()
+					m.pendingPaste = e.RawLine
+					return m, tea.Quit
+				}
+			}
+			if msg.Type == tea.KeyUp || msg.Type == tea.KeyDown {
+				dir := 1
+				if msg.Type == tea.KeyUp {
+					dir = -1
+				}
+				// Find next image entry in direction
+				for i := m.cursor + dir; i >= 0 && i < len(m.filtered); i += dir {
+					if m.filtered[i].IsImage {
+						m.cursor = i
+						m.prevCursor = -1
+						return m, m.imageCmd()
+					}
+				}
+				return m, nil
+			}
+			m.fullPreview = false
+			m.prevCursor = -1
+			return m, m.imageCmd()
+		}
+
 		// Search input: backspace edits filter, printable runes append.
 		// Everything else falls through to actions/nav.
 		if msg.Type == tea.KeyBackspace {
@@ -232,6 +290,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+		case keyFullPreview:
+			if e := m.selectedEntry(); e != nil && e.IsImage {
+				m.fullPreview = true
+				m.prevCursor = -1
+				return m, m.imageCmd()
+			}
+
 		case keyPin:
 			if e := m.selectedEntry(); e != nil {
 				m.meta.togglePin(e.ID)
@@ -290,16 +355,25 @@ func (m *model) imageCmd() tea.Cmd {
 		e := *entry
 		w := m.width
 		h := m.height
+		full := m.fullPreview
 		return func() tea.Msg {
-			listWidth := w * 45 / 100
-			previewCol := listWidth + 3
-			previewRow := 5
-			contentHeight := h - 4
-			previewWidth := w - listWidth - 2
-			if contentHeight < 1 {
-				contentHeight = 1
+			var col, row, cols, rows int
+			if full {
+				col = 2
+				row = 2
+				cols = w - 2
+				rows = h - 2
+			} else {
+				listWidth := w * 50 / 100
+				col = listWidth + 3
+				row = 4 // search(1) + blank(1) + newline(1) + 1-based
+				cols = w - listWidth - 2
+				rows = h - 3
 			}
-			showKittyImage(e, previewCol, previewRow, previewWidth, contentHeight)
+			if rows < 1 {
+				rows = 1
+			}
+			showKittyImage(e, col, row, cols, rows)
 			return imageShownMsg{}
 		}
 	}
@@ -322,22 +396,27 @@ func (m model) View() string {
 
 	if !m.loaded {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			dimStyle().Render("Loading..."))
+			dimStyle().Render("Loading…"))
 	}
 
-	contentHeight := m.height - 4
+	if m.fullPreview {
+		hint := dimStyle().Render("↑↓ cycle · Enter to paste · any key to close")
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Bottom, hint)
+	}
+
+	// Search prompt(1) + blank line(1) + content
+	contentHeight := m.height - 3
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
 
-	listWidth := m.width * 45 / 100
+	listWidth := m.width * 50 / 100
 	previewWidth := m.width - listWidth - 2
 
 	searchBar := m.renderSearchBar(m.width)
 	listView := m.renderList(listWidth, contentHeight)
 	previewView := m.renderPreview(previewWidth, contentHeight)
 
-	// Pad preview text to full height so the border spans the entire panel
 	previewView = padToHeight(previewView, contentHeight)
 	previewRendered := previewBorderStyle().Width(previewWidth).Render(previewView)
 	listView = clipLines(listView, contentHeight)
@@ -345,7 +424,7 @@ func (m model) View() string {
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, listView, previewRendered)
 
-	return searchBar + "\n" + content
+	return searchBar + content
 }
 
 func padToHeight(s string, height int) string {
@@ -365,14 +444,16 @@ func clipLines(s string, maxLines int) string {
 }
 
 func (m model) renderSearchBar(width int) string {
-	icon := dimStyle().Render("/ ")
+	prompt := accentStyle().Render("> ")
 	var text string
 	if m.searchInput != "" {
 		text = fgStyle().Render(m.searchInput) + accentStyle().Render("_")
+		count := len(m.filtered)
+		text += dimStyle().Render(fmt.Sprintf(" %d results", count))
 	} else {
-		text = dimStyle().Render("Type to search...")
+		text = dimStyle().Render("Type to search…")
 	}
-	return searchStyle().Width(width - 4).Render(icon + text)
+	return " " + prompt + text + "\n\n"
 }
 
 func (m model) renderList(width, height int) string {
@@ -395,15 +476,13 @@ func (m model) renderList(width, height int) string {
 		entry := m.filtered[i]
 		pinned := m.meta.isPinned(entry.ID)
 		ts := relativeTime(m.meta.timestamp(entry.ID))
-
-		prefix := "  "
-		if pinned {
-			prefix = "* "
+		if src := m.meta.source(entry.ID); src != "" {
+			ts += " · " + src
 		}
 
 		preview := entry.Preview
 		if entry.IsImage {
-			preview = "[image " + entry.ImageDim + "]"
+			preview = "[IMAGE] " + entry.ImageDim
 		}
 
 		maxLen := width - 4
@@ -411,27 +490,31 @@ func (m model) renderList(width, height int) string {
 			maxLen = 10
 		}
 		if len(preview) > maxLen {
-			preview = preview[:maxLen-1] + "~"
+			preview = preview[:maxLen-1] + "…"
 		}
 
-		line1 := prefix + preview
-		line2 := "    " + ts
+		// Highlight fuzzy match characters
+		highlighted := highlightMatches(preview, m.matchIndices[i], entry.IsImage)
 
 		if i == m.cursor {
-			line1 = selectedStyle().Width(width).Render(line1)
-			line2 = dimSelectedStyle().Width(width).Render(line2)
-		} else {
-			if pinned {
-				line1 = accentStyle().Render(prefix) + fgStyle().Render(preview)
-			} else {
-				line1 = fgStyle().Width(width).Render(line1)
+			bar := accentStyle().Render("▏")
+			line1 := bar + " " + highlighted
+			line2 := bar + "   " + veryDimStyle().Render(ts)
+			lines = append(lines, line1)
+			if len(lines) < height {
+				lines = append(lines, line2)
 			}
-			line2 = dimStyle().Width(width).Render(line2)
-		}
-
-		lines = append(lines, line1)
-		if len(lines) < height {
-			lines = append(lines, line2)
+		} else {
+			pin := "  "
+			if pinned {
+				pin = accentStyle().Render("● ")
+			}
+			line1 := pin + highlighted
+			line2 := "    " + veryDimStyle().Render(ts)
+			lines = append(lines, line1)
+			if len(lines) < height {
+				lines = append(lines, line2)
+			}
 		}
 	}
 
@@ -445,6 +528,32 @@ func (m model) renderList(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+// highlightMatches renders a preview string with fuzzy match indices in accent color.
+// If no indices, renders plain. For images, the indices refer to the original preview
+// text, not the "Image WxH" replacement, so we skip highlighting for images.
+func highlightMatches(text string, indices []int, isImage bool) string {
+	if len(indices) == 0 || isImage {
+		return fgStyle().Render(text)
+	}
+
+	matchSet := make(map[int]bool, len(indices))
+	for _, idx := range indices {
+		matchSet[idx] = true
+	}
+
+	var result strings.Builder
+	runes := []rune(text)
+	for i, r := range runes {
+		ch := string(r)
+		if matchSet[i] {
+			result.WriteString(accentStyle().Bold(true).Render(ch))
+		} else {
+			result.WriteString(fgStyle().Render(ch))
+		}
+	}
+	return result.String()
+}
+
 func (m model) renderPreview(width, height int) string {
 	entry := m.selectedEntry()
 	if entry == nil {
@@ -452,15 +561,19 @@ func (m model) renderPreview(width, height int) string {
 	}
 
 	if entry.IsImage {
-		return dimStyle().Render("[" + entry.ImageDim + " " + entry.ImageFmt + "]")
+		label := entry.ImageFmt + " · " + entry.ImageDim + " · " + entry.ImageSize
+		if src := m.meta.source(entry.ID); src != "" {
+			label += " · " + src
+		}
+		return dimStyle().Render(label)
 	}
 
 	return renderTextPreview(*entry, width, height)
 }
 
 func (m model) visibleItems() int {
-	contentHeight := m.height - 4
-	v := contentHeight / 2
+	contentHeight := m.height - 3
+	v := contentHeight / 2 // 2 lines per entry (text + timestamp)
 	if v < 1 {
 		return 1
 	}

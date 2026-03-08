@@ -8,9 +8,45 @@ import (
 	"time"
 )
 
+// FlexTime handles both RFC3339 strings and unix float timestamps from jq.
+type FlexTime struct {
+	time.Time
+}
+
+func (ft *FlexTime) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		t, err := time.Parse(time.RFC3339Nano, s)
+		if err == nil {
+			ft.Time = t
+			return nil
+		}
+		t, err = time.Parse(time.RFC3339, s)
+		if err == nil {
+			ft.Time = t
+			return nil
+		}
+	}
+	// Try as unix float
+	var f float64
+	if err := json.Unmarshal(b, &f); err == nil {
+		sec := int64(f)
+		nsec := int64((f - float64(sec)) * 1e9)
+		ft.Time = time.Unix(sec, nsec)
+		return nil
+	}
+	ft.Time = time.Time{}
+	return nil
+}
+
+func (ft FlexTime) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ft.Time.Format(time.RFC3339Nano))
+}
+
 type EntryMeta struct {
-	Pinned    bool      `json:"pinned"`
-	Timestamp time.Time `json:"timestamp"`
+	Pinned    bool     `json:"pinned"`
+	Timestamp FlexTime `json:"timestamp"`
+	Source    string   `json:"source,omitempty"`
 }
 
 type MetadataStore struct {
@@ -61,7 +97,7 @@ func (s *MetadataStore) reconcile(ids []string) {
 	// Add new entries
 	for _, id := range ids {
 		if _, ok := s.Entries[id]; !ok {
-			s.Entries[id] = EntryMeta{Timestamp: time.Now()}
+			s.Entries[id] = EntryMeta{Timestamp: FlexTime{time.Now()}}
 		}
 	}
 }
@@ -77,7 +113,11 @@ func (s *MetadataStore) isPinned(id string) bool {
 }
 
 func (s *MetadataStore) timestamp(id string) time.Time {
-	return s.Entries[id].Timestamp
+	return s.Entries[id].Timestamp.Time
+}
+
+func (s *MetadataStore) source(id string) string {
+	return s.Entries[id].Source
 }
 
 func (s *MetadataStore) remove(id string) {
@@ -111,22 +151,14 @@ func relativeTime(t time.Time) string {
 	case d < time.Minute:
 		return "now"
 	case d < time.Hour:
-		m := int(d.Minutes())
-		if m == 1 {
-			return "1m ago"
-		}
-		return fmt.Sprintf("%dm ago", m)
+		return fmt.Sprintf("%dm", int(d.Minutes()))
 	case d < 24*time.Hour:
-		h := int(d.Hours())
-		if h == 1 {
-			return "1h ago"
-		}
-		return fmt.Sprintf("%dh ago", h)
+		return fmt.Sprintf("%dh", int(d.Hours()))
 	default:
 		days := int(d.Hours() / 24)
 		if days == 1 {
-			return "yesterday"
+			return "1d"
 		}
-		return fmt.Sprintf("%dd ago", days)
+		return fmt.Sprintf("%dd", days)
 	}
 }
