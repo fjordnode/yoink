@@ -38,7 +38,6 @@ make install  # builds and copies to ~/.local/bin/
 | `Ctrl+D` | Delete entry |
 | `Ctrl+P` | Pin/unpin entry |
 | `Tab` | Full-screen image preview |
-| `/` | Clear search |
 | `Esc` | Quit (or clear search) |
 | Type anything | Search/filter |
 

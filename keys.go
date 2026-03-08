@@ -11,7 +11,6 @@ const (
 	keyDelete
 	keyPin
 	keyQuit
-	keySearch
 	keyFullPreview
 )
 
@@ -29,10 +28,6 @@ func classifyKey(msg tea.KeyMsg) keyAction {
 		return keyCopy
 	case tea.KeyTab:
 		return keyFullPreview
-	default:
-		if msg.String() == "/" {
-			return keySearch
-		}
 	}
 	return keyNone
 }

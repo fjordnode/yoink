@@ -220,12 +220,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.Type == tea.KeyRunes {
-			if msg.String() != "/" {
-				m.searchInput += string(msg.Runes)
-				m.applyFilter()
-				m.prevCursor = -1
-				return m, m.imageCmd()
-			}
+			m.searchInput += string(msg.Runes)
+			m.applyFilter()
+			m.prevCursor = -1
+			return m, m.imageCmd()
 		}
 
 		action := classifyKey(msg)
@@ -239,12 +237,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			clearKittyImages()
 			return m, tea.Quit
-
-		case keySearch:
-			m.searchInput = ""
-			m.applyFilter()
-			m.prevCursor = -1
-			return m, m.imageCmd()
 
 		case keyPaste:
 			if e := m.selectedEntry(); e != nil {
