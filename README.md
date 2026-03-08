@@ -29,6 +29,14 @@ A clipboard manager TUI for Wayland/Hyprland. Wraps [cliphist](https://github.co
 ## Install
 
 ```bash
+go install github.com/fjordnode/yoink@latest
+```
+
+Or clone and build manually:
+
+```bash
+git clone https://github.com/fjordnode/yoink.git
+cd yoink
 make install  # builds and copies to ~/.local/bin/
 ```
 

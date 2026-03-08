@@ -1,4 +1,4 @@
-module yoink
+module github.com/fjordnode/yoink
 
 go 1.25.7
 
