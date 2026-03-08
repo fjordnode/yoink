@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os/exec"
 	"strings"
@@ -39,7 +40,7 @@ func pasteToWindow(sw SourceWindow, rawLine string) {
 		return
 	}
 	cmd := exec.Command("wl-copy")
-	cmd.Stdin = strings.NewReader(string(data))
+	cmd.Stdin = bytes.NewReader(data)
 	if err := cmd.Run(); err != nil {
 		return
 	}

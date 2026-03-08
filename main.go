@@ -1,10 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,7 +14,7 @@ const statusDuration = time.Second
 
 func execWlCopy(data []byte) *exec.Cmd {
 	cmd := exec.Command("wl-copy")
-	cmd.Stdin = strings.NewReader(string(data))
+	cmd.Stdin = bytes.NewReader(data)
 	return cmd
 }
 
@@ -22,27 +22,14 @@ func main() {
 	// Capture source window before TUI opens
 	source := captureSourceWindow()
 
-	// Load clipboard entries
-	entries, err := cliphistList()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
 	// Load theme
 	loadTheme()
 
-	// Load and reconcile metadata
+	// Load metadata (fast, local JSON)
 	meta := loadMetadata()
-	ids := make([]string, len(entries))
-	for i, e := range entries {
-		ids[i] = e.ID
-	}
-	meta.reconcile(ids)
-	_ = meta.save()
 
-	// Create and run TUI
-	m := newModel(entries, meta, source)
+	// Launch TUI immediately with empty entries — loads async
+	m := newModel(nil, meta, source)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	result, err := p.Run()

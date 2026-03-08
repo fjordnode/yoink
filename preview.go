@@ -44,6 +44,16 @@ func renderTextPreview(entry ClipEntry, width, height int) string {
 	return fgStyle().Render(strings.Join(lines, "\n"))
 }
 
+// lastTmpImage tracks the temp file so we can clean it up.
+var lastTmpImage string
+
+func cleanupTmpImage() {
+	if lastTmpImage != "" {
+		os.Remove(lastTmpImage)
+		lastTmpImage = ""
+	}
+}
+
 // showKittyImage writes kitty graphics protocol escape sequences directly
 // to /dev/tty, bypassing bubbletea/lipgloss which would corrupt APC sequences.
 // Kitty renders images on a separate layer above text, so they persist
@@ -61,6 +71,9 @@ func showKittyImage(entry ClipEntry, col, row, cols, rows int) {
 		return
 	}
 
+	// Clean up previous temp file
+	cleanupTmpImage()
+
 	// Write to temp file for kitty to read
 	tmp, err := os.CreateTemp("", "clip-img-*.png")
 	if err != nil {
@@ -73,6 +86,7 @@ func showKittyImage(entry ClipEntry, col, row, cols, rows int) {
 		return
 	}
 	tmp.Close()
+	lastTmpImage = tmpPath
 
 	// Parse image dimensions and fit to cell area preserving aspect ratio.
 	// Terminal cells are ~2x taller than wide, so 1 cell row ≈ 2 cell cols.
@@ -147,6 +161,7 @@ func fitImage(imgW, imgH, maxCols, maxRows int) (int, int) {
 
 // clearKittyImages removes all kitty graphics placements via /dev/tty.
 func clearKittyImages() {
+	cleanupTmpImage()
 	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
 	if err != nil {
 		return

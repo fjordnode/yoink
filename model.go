@@ -14,28 +14,44 @@ type model struct {
 	filtered     []ClipEntry
 	meta         *MetadataStore
 	source       SourceWindow
-	cursor      int
-	prevCursor  int // track changes for image clear/show
-	searchInput string
+	cursor       int
+	prevCursor   int
+	searchInput  string
 	width        int
 	height       int
 	pendingPaste string
 	status       string
-	imageShown   bool // whether a kitty image is currently displayed
+	imageShown   bool
+	loaded       bool // whether initial load has completed
 }
 
+// Messages
 type statusClearMsg struct{}
-type imageShownMsg struct{} // sent after image is displayed
+type imageShownMsg struct{}
+type entriesLoadedMsg struct{ entries []ClipEntry }
 
 func newModel(entries []ClipEntry, meta *MetadataStore, source SourceWindow) model {
 	m := model{
-		entries:      entries,
-		meta:         meta,
-		source:       source,
+		entries:    entries,
+		meta:       meta,
+		source:     source,
 		prevCursor: -1,
+		loaded:     entries != nil,
 	}
-	m.applyFilter()
+	if entries != nil {
+		m.reconcileMeta()
+		m.applyFilter()
+	}
 	return m
+}
+
+func (m *model) reconcileMeta() {
+	ids := make([]string, len(m.entries))
+	for i, e := range m.entries {
+		ids[i] = e.ID
+	}
+	m.meta.reconcile(ids)
+	_ = m.meta.save()
 }
 
 func (m *model) applyFilter() {
@@ -78,8 +94,17 @@ func (m model) selectedEntry() *ClipEntry {
 	return &m.filtered[m.cursor]
 }
 
+// loadEntriesCmd runs cliphist list in the background.
+func loadEntriesCmd() tea.Msg {
+	entries, _ := cliphistList()
+	return entriesLoadedMsg{entries: entries}
+}
+
 func (m model) Init() tea.Cmd {
-	return nil
+	if m.loaded {
+		return nil
+	}
+	return loadEntriesCmd
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -87,7 +112,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// Force image refresh on resize
 		m.prevCursor = -1
 		return m, nil
 
@@ -98,9 +122,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case imageShownMsg:
 		return m, nil
 
+	case entriesLoadedMsg:
+		// Merge new entries without disrupting user's position
+		selectedID := ""
+		if e := m.selectedEntry(); e != nil {
+			selectedID = e.ID
+		}
+
+		m.entries = msg.entries
+		if m.entries == nil {
+			m.entries = []ClipEntry{}
+		}
+		m.loaded = true
+		m.reconcileMeta()
+		m.applyFilter()
+
+		// Restore cursor to same entry if still present
+		if selectedID != "" {
+			for i, e := range m.filtered {
+				if e.ID == selectedID {
+					m.cursor = i
+					break
+				}
+			}
+		}
+		m.prevCursor = -1
+		return m, m.imageCmd()
+
 	case tea.KeyMsg:
-		// Search input: backspace edits filter, printable runes append to filter.
-		// Everything else (arrows, Enter, Ctrl+key, Esc) falls through to actions/nav.
+		// Search input: backspace edits filter, printable runes append.
+		// Everything else falls through to actions/nav.
 		if msg.Type == tea.KeyBackspace {
 			if len(m.searchInput) > 0 {
 				m.searchInput = m.searchInput[:len(m.searchInput)-1]
@@ -111,7 +162,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.Type == tea.KeyRunes {
-			// Don't consume "/" — let it fall through to classifyKey
 			if msg.String() != "/" {
 				m.searchInput += string(msg.Runes)
 				m.applyFilter()
@@ -124,7 +174,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch action {
 		case keyQuit:
 			if m.searchInput != "" {
-				// Esc clears search first
 				m.searchInput = ""
 				m.applyFilter()
 				m.prevCursor = -1
@@ -134,7 +183,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case keySearch:
-			// "/" clears search filter
 			m.searchInput = ""
 			m.applyFilter()
 			m.prevCursor = -1
@@ -231,8 +279,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// imageCmd returns a tea.Cmd that shows or clears the kitty image
-// based on the currently selected entry. Runs after View() renders.
+// imageCmd returns a tea.Cmd that shows or clears the kitty image.
 func (m *model) imageCmd() tea.Cmd {
 	entry := m.selectedEntry()
 	wasImage := m.imageShown
@@ -240,15 +287,14 @@ func (m *model) imageCmd() tea.Cmd {
 	if entry != nil && entry.IsImage {
 		m.imageShown = true
 		m.prevCursor = m.cursor
-		// Capture values for the closure
 		e := *entry
 		w := m.width
 		h := m.height
 		return func() tea.Msg {
 			listWidth := w * 45 / 100
-			previewCol := listWidth + 3 // list + border(1) + padding(1) + 1-based
-			previewRow := 5             // search bar(3) + newline(1) + 1-based
-			contentHeight := h - 6
+			previewCol := listWidth + 3
+			previewRow := 5
+			contentHeight := h - 4
 			previewWidth := w - listWidth - 2
 			if contentHeight < 1 {
 				contentHeight = 1
@@ -274,7 +320,11 @@ func (m model) View() string {
 		return ""
 	}
 
-	// Total lines: searchBar(3) + \n + content = content + 4
+	if !m.loaded {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			dimStyle().Render("Loading..."))
+	}
+
 	contentHeight := m.height - 4
 	if contentHeight < 1 {
 		contentHeight = 1
@@ -287,15 +337,23 @@ func (m model) View() string {
 	listView := m.renderList(listWidth, contentHeight)
 	previewView := m.renderPreview(previewWidth, contentHeight)
 
-	// Render preview with border, then hard-clip both panels to contentHeight lines
-	// so JoinHorizontal never exceeds the expected height.
-	previewRendered := previewBorderStyle().Width(previewWidth).Height(contentHeight).Render(previewView)
+	// Pad preview text to full height so the border spans the entire panel
+	previewView = padToHeight(previewView, contentHeight)
+	previewRendered := previewBorderStyle().Width(previewWidth).Render(previewView)
 	listView = clipLines(listView, contentHeight)
 	previewRendered = clipLines(previewRendered, contentHeight)
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, listView, previewRendered)
 
 	return searchBar + "\n" + content
+}
+
+func padToHeight(s string, height int) string {
+	lines := strings.Split(s, "\n")
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func clipLines(s string, maxLines int) string {
@@ -394,8 +452,6 @@ func (m model) renderPreview(width, height int) string {
 	}
 
 	if entry.IsImage {
-		// Image is rendered via kitty graphics protocol directly to /dev/tty
-		// (see imageCmd). Show dimensions as placeholder text.
 		return dimStyle().Render("[" + entry.ImageDim + " " + entry.ImageFmt + "]")
 	}
 
@@ -403,7 +459,7 @@ func (m model) renderPreview(width, height int) string {
 }
 
 func (m model) visibleItems() int {
-	contentHeight := m.height - 6
+	contentHeight := m.height - 4
 	v := contentHeight / 2
 	if v < 1 {
 		return 1
