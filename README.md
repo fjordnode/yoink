@@ -55,45 +55,10 @@ make install  # builds and copies to ~/.local/bin/
 
 ## Source app tracking (optional)
 
-The TUI can display which app each entry was copied from. This requires a small watcher script that runs alongside cliphist.
-
-Create `~/.local/bin/yoink-watcher`:
+The TUI can display which app each entry was copied from. Install the watcher script and add it to your Hyprland autostart:
 
 ```bash
-#!/bin/bash
-# Captures the active window class when clipboard changes
-# and writes it to the clipboard metadata store.
-
-METADATA="$HOME/.local/share/yoink/metadata.json"
-SELF_CLASS="yoink"
-
-# Get active window class
-class=$(hyprctl activewindow -j 2>/dev/null | jq -r '.class // empty')
-[ -z "$class" ] && exit 0
-[ "$class" = "$SELF_CLASS" ] && exit 0
-
-# Wait for cliphist to store the entry (up to 500ms)
-latest=""
-for i in $(seq 1 25); do
-  latest=$(cliphist list | head -1)
-  [ -n "$latest" ] && break
-  sleep 0.02
-done
-[ -z "$latest" ] && exit 0
-
-id=$(echo "$latest" | cut -f1)
-
-# Ensure metadata file exists
-mkdir -p "$(dirname "$METADATA")"
-[ -f "$METADATA" ] || echo '{"entries":{}}' > "$METADATA"
-
-# Write source if not already set
-existing=$(jq -r --arg id "$id" '.entries[$id].source // empty' "$METADATA" 2>/dev/null)
-if [ -z "$existing" ]; then
-  jq --arg id "$id" --arg src "$class" \
-    '.entries[$id].source = $src' "$METADATA" > "$METADATA.tmp" && \
-    mv "$METADATA.tmp" "$METADATA"
-fi
+curl -sL https://raw.githubusercontent.com/fjordnode/yoink/main/scripts/yoink-watcher -o ~/.local/bin/yoink-watcher && chmod +x ~/.local/bin/yoink-watcher
 ```
 
 Then add to your Hyprland autostart:
@@ -101,6 +66,8 @@ Then add to your Hyprland autostart:
 ```
 exec-once = wl-paste --watch yoink-watcher
 ```
+
+Requires `jq` and `hyprctl`. The script runs on every clipboard change, captures the active window class, and writes it to `~/.local/share/yoink/metadata.json`.
 
 ## License
 
