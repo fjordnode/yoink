@@ -72,7 +72,7 @@ func buildPasteScript(sw SourceWindow) string {
 	// then focus source and paste immediately. No fixed sleep.
 	return `
 for i in $(seq 1 25); do
-  if ! hyprctl clients -j 2>/dev/null | jq -e '.[] | select(.class == "org.omarchy.clipboard")' >/dev/null 2>&1; then
+  if ! hyprctl clients -j 2>/dev/null | jq -e '.[] | select(.class == "yoink")' >/dev/null 2>&1; then
     break
   fi
   sleep 0.02

@@ -34,7 +34,7 @@ func loadTheme() {
 	}
 
 	home, _ := os.UserHomeDir()
-	p := filepath.Join(home, ".config", "omarchy", "current", "theme", "colors.toml")
+	p := filepath.Join(home, ".config", "yoink", "theme.toml")
 	_, _ = toml.DecodeFile(p, &theme)
 }
 

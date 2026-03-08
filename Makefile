@@ -1,4 +1,4 @@
-BINARY = omarchy-clipboard-tui
+BINARY = yoink
 INSTALL_DIR = $(HOME)/.local/bin
 
 .PHONY: build install clean

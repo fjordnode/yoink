@@ -60,7 +60,7 @@ func metadataPath() string {
 		home, _ := os.UserHomeDir()
 		dir = filepath.Join(home, ".local", "share")
 	}
-	return filepath.Join(dir, "omarchy-clipboard", "metadata.json")
+	return filepath.Join(dir, "yoink", "metadata.json")
 }
 
 func loadMetadata() *MetadataStore {

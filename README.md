@@ -1,4 +1,4 @@
-# omarchy-clipboard-tui
+# yoink
 
 A clipboard manager TUI for Wayland/Hyprland. Wraps [cliphist](https://github.com/sentriz/cliphist) with a two-pane interface — list on the left, preview on the right — with image previews via the Kitty graphics protocol.
 
@@ -12,7 +12,7 @@ A clipboard manager TUI for Wayland/Hyprland. Wraps [cliphist](https://github.co
 - Full-screen image preview with Tab
 - Pin entries to keep them at the top
 - Paste-back to the source window on Enter
-- Theme integration with [omarchy](https://github.com/nicholasgasior/omarchy) color scheme
+- Themeable via TOML color scheme
 
 ## Requirements
 
@@ -46,15 +46,15 @@ make install  # builds and copies to ~/.local/bin/
 
 The TUI can display which app each entry was copied from. This requires a small watcher script that runs alongside cliphist.
 
-Create `~/.local/bin/omarchy-clipboard-watcher`:
+Create `~/.local/bin/yoink-watcher`:
 
 ```bash
 #!/bin/bash
 # Captures the active window class when clipboard changes
 # and writes it to the clipboard metadata store.
 
-METADATA="$HOME/.local/share/omarchy-clipboard/metadata.json"
-SELF_CLASS="org.omarchy.clipboard"
+METADATA="$HOME/.local/share/yoink/metadata.json"
+SELF_CLASS="yoink"
 
 # Get active window class
 class=$(hyprctl activewindow -j 2>/dev/null | jq -r '.class // empty')
@@ -85,10 +85,10 @@ if [ -z "$existing" ]; then
 fi
 ```
 
-Then add to your Hyprland autostart (`~/.config/hypr/autostart.conf`):
+Then add to your Hyprland autostart:
 
 ```
-exec-once = wl-paste --watch omarchy-clipboard-watcher
+exec-once = wl-paste --watch yoink-watcher
 ```
 
 ## License

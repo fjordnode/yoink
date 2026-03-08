@@ -1,4 +1,4 @@
-module omarchy-clipboard-tui
+module yoink
 
 go 1.25.7
 
