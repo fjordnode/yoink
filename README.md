@@ -54,6 +54,8 @@ make install  # builds and copies to ~/.local/bin/
 | `Esc` | Quit (or clear search) |
 | Type anything | Search/filter |
 
+**Image preview mode** (`Tab`): Opens the selected image full-screen. Use `↑` `↓` to cycle through images, `Enter` to paste, any other key to go back.
+
 ## Source app tracking (optional)
 
 The TUI can display which app each entry was copied from. Install the watcher script and add it to your Hyprland autostart:
