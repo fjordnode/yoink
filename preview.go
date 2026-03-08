@@ -82,13 +82,17 @@ func showKittyImage(entry ClipEntry, col, row, cols, rows int) {
 	imgW, imgH := parseImageDim(entry.ImageDim)
 	fitC, fitR := fitImage(imgW, imgH, cols, rows)
 
+	// Center the image within the available area
+	offsetCol := (cols - fitC) / 2
+	offsetRow := (rows - fitR) / 2
+
 	pathB64 := base64.StdEncoding.EncodeToString([]byte(tmpPath))
 
 	// Clear all previous images
 	fmt.Fprint(tty, "\x1b_Ga=d,d=A\x1b\\")
 
-	// Save cursor, move to preview pane position
-	fmt.Fprintf(tty, "\x1b7\x1b[%d;%dH", row, col)
+	// Save cursor, move to centered position
+	fmt.Fprintf(tty, "\x1b7\x1b[%d;%dH", row+offsetRow, col+offsetCol)
 
 	// Transmit and display image
 	// a=T: transmit+display, t=f: file path, f=100: auto format
