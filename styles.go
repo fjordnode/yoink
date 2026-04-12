@@ -59,6 +59,27 @@ func selectedFgStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Foreground)).Bold(true)
 }
 
+func selectedRowStyle(width int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.Accent)).
+		Foreground(lipgloss.Color(theme.Background)).
+		Bold(true).
+		Width(width)
+}
+
+func selectedDimStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.Color0)).
+		Background(lipgloss.Color(theme.Accent))
+}
+
+func selectedPinStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.Background)).
+		Background(lipgloss.Color(theme.Accent)).
+		Bold(true)
+}
+
 func previewBorderStyle() lipgloss.Style {
 	thin := lipgloss.Border{Left: "▏"}
 	return lipgloss.NewStyle().

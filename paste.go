@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -13,7 +15,27 @@ type SourceWindow struct {
 	Class   string
 }
 
+func detectCompositor() string {
+	if os.Getenv("XDG_CURRENT_DESKTOP") == "niri" {
+		return "niri"
+	}
+	if os.Getenv("HYPRLAND_INSTANCE_SIGNATURE") != "" {
+		return "hyprland"
+	}
+	return ""
+}
+
 func captureSourceWindow() SourceWindow {
+	switch detectCompositor() {
+	case "niri":
+		return captureSourceWindowNiri()
+	case "hyprland":
+		return captureSourceWindowHyprland()
+	}
+	return SourceWindow{}
+}
+
+func captureSourceWindowHyprland() SourceWindow {
 	out, err := exec.Command("hyprctl", "activewindow", "-j").Output()
 	if err != nil {
 		return SourceWindow{}
@@ -30,6 +52,26 @@ func captureSourceWindow() SourceWindow {
 	return SourceWindow{
 		Address: data.Address,
 		Class:   strings.ToLower(data.Class),
+	}
+}
+
+func captureSourceWindowNiri() SourceWindow {
+	out, err := exec.Command("niri", "msg", "-j", "focused-window").Output()
+	if err != nil {
+		return SourceWindow{}
+	}
+
+	var data struct {
+		ID    int    `json:"id"`
+		AppID string `json:"app_id"`
+	}
+	if err := json.Unmarshal(out, &data); err != nil {
+		return SourceWindow{}
+	}
+
+	return SourceWindow{
+		Address: strconv.Itoa(data.ID),
+		Class:   strings.ToLower(data.AppID),
 	}
 }
 
@@ -61,7 +103,9 @@ func pasteToWindow(sw SourceWindow, rawLine string) {
 func buildPasteScript(sw SourceWindow) string {
 	var pasteCmd string
 	switch {
-	case strings.Contains(sw.Class, "brave"):
+	case strings.Contains(sw.Class, "brave"),
+		strings.Contains(sw.Class, "firefox"),
+		strings.Contains(sw.Class, "chromium"):
 		pasteCmd = "wtype -s 20 -M ctrl -k v -m ctrl"
 	case strings.Contains(sw.Class, "kitty"),
 		strings.Contains(sw.Class, "alacritty"),
@@ -73,8 +117,28 @@ func buildPasteScript(sw SourceWindow) string {
 		pasteCmd = "wtype -s 20 -M shift -k Insert -m shift"
 	}
 
-	// Poll for the clipboard TUI window to disappear (up to 500ms),
-	// then focus source and paste immediately. No fixed sleep.
+	switch detectCompositor() {
+	case "niri":
+		return buildNiriPasteScript(sw, pasteCmd)
+	default:
+		return buildHyprlandPasteScript(sw, pasteCmd)
+	}
+}
+
+func buildNiriPasteScript(sw SourceWindow, pasteCmd string) string {
+	return `
+for i in $(seq 1 25); do
+  if ! niri msg -j windows 2>/dev/null | jq -e '.[] | select(.app_id == "yoink")' >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.02
+done
+niri msg action focus-window --id ` + sw.Address + ` >/dev/null 2>&1
+sleep 0.02
+` + pasteCmd
+}
+
+func buildHyprlandPasteScript(sw SourceWindow, pasteCmd string) string {
 	return `
 for i in $(seq 1 25); do
   if ! hyprctl clients -j 2>/dev/null | jq -e '.[] | select(.class == "yoink")' >/dev/null 2>&1; then

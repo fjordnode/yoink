@@ -24,6 +24,8 @@ func classifyKey(msg tea.KeyMsg) keyAction {
 		return keyDelete
 	case tea.KeyCtrlP:
 		return keyPin
+	case tea.KeyCtrlN:
+		return keyCopy
 	case tea.KeyCtrlY:
 		return keyCopy
 	case tea.KeyTab:

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,8 +20,17 @@ func execWlCopy(data []byte) *exec.Cmd {
 }
 
 func main() {
-	// Capture source window before TUI opens
-	source := captureSourceWindow()
+	sourceID := flag.String("source-id", "", "Source window ID (niri window id or hyprland address)")
+	sourceClass := flag.String("source-class", "", "Source window app-id/class")
+	flag.Parse()
+
+	// Use passed-in source window, or auto-detect
+	var source SourceWindow
+	if *sourceID != "" {
+		source = SourceWindow{Address: *sourceID, Class: *sourceClass}
+	} else {
+		source = captureSourceWindow()
+	}
 
 	// Load theme
 	loadTheme()

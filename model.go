@@ -68,7 +68,7 @@ func (m *model) applyFilter() {
 		for _, e := range m.entries {
 			displayText := e.Preview
 			if e.IsImage {
-				displayText = "[IMAGE] " + e.ImageDim
+				displayText = "🖼️  " + e.ImageDim
 			}
 			lowerRunes := []rune(strings.ToLower(displayText))
 			idx := runeIndex(lowerRunes, queryRunes)
@@ -252,10 +252,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err == nil {
 					cmd := execWlCopy(data)
 					if cmd.Run() == nil {
-						m.status = "Copied!"
-						return m, tea.Tick(statusDuration, func(_ time.Time) tea.Msg {
-							return statusClearMsg{}
-						})
+						clearKittyImages()
+						return m, tea.Quit
 					}
 				}
 			}
@@ -400,7 +398,7 @@ func (m model) View() string {
 	}
 
 	if m.fullPreview {
-		hint := dimStyle().Render("↑↓ cycle · Enter to paste · any key to close")
+		hint := dimStyle().Render("↑↓ cycle · Enter paste · Ctrl+N copy · any key to close")
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Bottom, hint)
 	}
 
@@ -453,7 +451,13 @@ func (m model) renderSearchBar(width int) string {
 	} else {
 		text = dimStyle().Render("Type to search…")
 	}
-	return " " + prompt + text + "\n\n"
+	inner := prompt + text
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(theme.Color8)).
+		Width(width - 2).
+		Render(inner)
+	return box + "\n"
 }
 
 func (m model) renderList(width, height int) string {
@@ -475,14 +479,10 @@ func (m model) renderList(width, height int) string {
 	for i := start; i < end; i++ {
 		entry := m.filtered[i]
 		pinned := m.meta.isPinned(entry.ID)
-		ts := relativeTime(m.meta.timestamp(entry.ID))
-		if src := m.meta.source(entry.ID); src != "" {
-			ts += " · " + src
-		}
 
 		preview := entry.Preview
 		if entry.IsImage {
-			preview = "[IMAGE] " + entry.ImageDim
+			preview = "🖼️  " + entry.ImageDim
 		}
 
 		maxLen := width - 4
@@ -497,25 +497,26 @@ func (m model) renderList(width, height int) string {
 		// Highlight fuzzy match characters
 		highlighted := highlightMatches(preview, m.matchIndices[i], entry.IsImage)
 
+		pin := "  "
+		if pinned {
+			pin = accentStyle().Render("● ")
+		}
+
 		if i == m.cursor {
-			bar := accentStyle().Render("▏")
-			line1 := bar + " " + highlighted
-			line2 := bar + "   " + veryDimStyle().Render(ts)
-			lines = append(lines, line1)
-			if len(lines) < height {
-				lines = append(lines, line2)
-			}
-		} else {
-			pin := "  "
+			selBg := selectedRowStyle(width)
+			selPin := "  "
 			if pinned {
-				pin = accentStyle().Render("● ")
+				selPin = selectedPinStyle().Render("● ")
 			}
-			line1 := pin + highlighted
-			line2 := "    " + veryDimStyle().Render(ts)
-			lines = append(lines, line1)
-			if len(lines) < height {
-				lines = append(lines, line2)
-			}
+			lines = append(lines, selBg.Render(selPin+selectedHighlight(preview, m.matchIndices[i], entry.IsImage)))
+		} else {
+			lines = append(lines, pin+highlighted)
+		}
+
+		// Dim separator between entries
+		if i < end-1 && len(lines) < height {
+			sep := veryDimStyle().Render("  " + strings.Repeat("─", width-4))
+			lines = append(lines, sep)
 		}
 	}
 
@@ -532,6 +533,37 @@ func (m model) renderList(width, height int) string {
 // highlightMatches renders a preview string with fuzzy match indices in accent color.
 // If no indices, renders plain. For images, the indices refer to the original preview
 // text, not the "Image WxH" replacement, so we skip highlighting for images.
+// selectedHighlight renders text on the accent-background selection bar.
+func selectedHighlight(text string, indices []int, isImage bool) string {
+	base := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.Background)).
+		Background(lipgloss.Color(theme.Accent))
+	bold := base.Bold(true)
+
+	if len(indices) == 0 || isImage {
+		return bold.Render(text)
+	}
+
+	matchSet := make(map[int]bool, len(indices))
+	for _, idx := range indices {
+		matchSet[idx] = true
+	}
+
+	var result strings.Builder
+	for i, r := range []rune(text) {
+		ch := string(r)
+		if matchSet[i] {
+			result.WriteString(lipgloss.NewStyle().
+				Foreground(lipgloss.Color(theme.SelectionForeground)).
+				Background(lipgloss.Color(theme.Accent)).
+				Bold(true).Underline(true).Render(ch))
+		} else {
+			result.WriteString(base.Render(ch))
+		}
+	}
+	return result.String()
+}
+
 func highlightMatches(text string, indices []int, isImage bool) string {
 	if len(indices) == 0 || isImage {
 		return fgStyle().Render(text)
@@ -594,7 +626,8 @@ func runeIndex(haystack, needle []rune) int {
 
 func (m model) visibleItems() int {
 	contentHeight := m.height - 3
-	v := contentHeight / 2 // 2 lines per entry (text + timestamp)
+	// 2 lines per entry: content + separator
+	v := (contentHeight + 1) / 2
 	if v < 1 {
 		return 1
 	}
