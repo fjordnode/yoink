@@ -16,6 +16,7 @@ type model struct {
 	filtered     []ClipEntry
 	matchIndices [][]int // fuzzy match character indices per filtered entry
 	meta         *MetadataStore
+	snippets     *SnippetStore
 	source       SourceWindow
 	cursor       int
 	prevCursor   int
@@ -87,25 +88,25 @@ func (m *model) applyFilter() {
 		}
 	}
 
-	// Pinned first, preserve order within groups
+	// Saved entries first, preserve order within groups
 	type entryWithIdx struct {
 		entry   ClipEntry
 		indices []int
 	}
-	var pinnedItems, unpinnedItems []entryWithIdx
+	var savedItems, regularItems []entryWithIdx
 	for i, e := range m.filtered {
 		var indices []int
 		if i < len(m.matchIndices) {
 			indices = m.matchIndices[i]
 		}
 		item := entryWithIdx{entry: e, indices: indices}
-		if m.meta.isPinned(e.ID) {
-			pinnedItems = append(pinnedItems, item)
+		if e.IsSaved {
+			savedItems = append(savedItems, item)
 		} else {
-			unpinnedItems = append(unpinnedItems, item)
+			regularItems = append(regularItems, item)
 		}
 	}
-	all := append(pinnedItems, unpinnedItems...)
+	all := append(savedItems, regularItems...)
 	m.filtered = make([]ClipEntry, len(all))
 	m.matchIndices = make([][]int, len(all))
 	for i, item := range all {
@@ -163,10 +164,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			selectedID = e.ID
 		}
 
-		m.entries = msg.entries
-		if m.entries == nil {
-			m.entries = []ClipEntry{}
+		clipEntries := msg.entries
+		if clipEntries == nil {
+			clipEntries = []ClipEntry{}
 		}
+		m.snippets = loadSnippets()
+		m.entries = append(m.snippets.toClipEntries(), clipEntries...)
 		m.loaded = true
 		m.reconcileMeta()
 		m.applyFilter()
@@ -245,14 +248,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case keyPaste:
 			if e := m.selectedEntry(); e != nil {
-				clearKittyImages()
-				m.pendingPaste = e.RawLine
-				return m, tea.Quit
+				if e.IsSaved {
+					data, err := m.snippets.readData(e.SnippetID)
+					if err == nil {
+						cmd := execWlCopy(data)
+						if cmd.Run() == nil {
+							clearKittyImages()
+							m.pendingPaste = "__snippet__"
+							return m, tea.Quit
+						}
+					}
+				} else {
+					clearKittyImages()
+					m.pendingPaste = e.RawLine
+					return m, tea.Quit
+				}
 			}
 
 		case keyCopy:
 			if e := m.selectedEntry(); e != nil {
-				data, err := cliphistDecode(e.RawLine)
+				data, err := decodeEntry(*e, m.snippets)
 				if err == nil {
 					cmd := execWlCopy(data)
 					if cmd.Run() == nil {
@@ -264,9 +279,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case keyDelete:
 			if e := m.selectedEntry(); e != nil {
-				if err := cliphistDelete(e.RawLine); err == nil {
-					m.meta.remove(e.ID)
-					_ = m.meta.save()
+				var deleted bool
+				if e.IsSaved {
+					if err := m.snippets.remove(e.SnippetID); err == nil {
+						deleted = true
+					}
+				} else {
+					if err := cliphistDelete(e.RawLine); err == nil {
+						m.meta.remove(e.ID)
+						_ = m.meta.save()
+						deleted = true
+					}
+				}
+				if deleted {
 					for i, entry := range m.entries {
 						if entry.ID == e.ID {
 							m.entries = append(m.entries[:i], m.entries[i+1:]...)
@@ -292,22 +317,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.prevCursor = -1
 					return m, m.imageCmd()
 				}
-				return m, openInEditor(*e)
+				return m, openInEditor(*e, m.snippets)
 			}
 
-		case keyPin:
-			if e := m.selectedEntry(); e != nil {
-				selectedID := e.ID
-				m.meta.togglePin(e.ID)
-				_ = m.meta.save()
-				m.applyFilter()
-				for i, fe := range m.filtered {
-					if fe.ID == selectedID {
-						m.cursor = i
-						break
+		case keySave:
+			if e := m.selectedEntry(); e != nil && !e.IsSaved {
+				data, err := decodeEntry(*e, m.snippets)
+				if err == nil {
+					src := m.meta.source(e.ID)
+					if m.snippets.save(*e, data, src) == nil {
+						m.status = "Saved ★"
+						return m, tea.Batch(
+							tea.Tick(statusDuration, func(_ time.Time) tea.Msg {
+								return statusClearMsg{}
+							}),
+							loadEntriesCmd,
+						)
 					}
 				}
 			}
+
+		case keyRefresh:
+			return m, loadEntriesCmd
 
 		default:
 			prevCursor := m.cursor
@@ -361,6 +392,7 @@ func (m *model) imageCmd() tea.Cmd {
 		w := m.width
 		h := m.height
 		full := m.fullPreview
+		snips := m.snippets
 		return func() tea.Msg {
 			var col, row, cols, rows int
 			if full {
@@ -378,7 +410,7 @@ func (m *model) imageCmd() tea.Cmd {
 			if rows < 1 {
 				rows = 1
 			}
-			showKittyImage(e, col, row, cols, rows)
+			showKittyImage(e, snips, col, row, cols, rows)
 			return imageShownMsg{}
 		}
 	}
@@ -409,8 +441,8 @@ func (m model) View() string {
 		return "\x1b[?25l" + lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Bottom, hint)
 	}
 
-	// Search prompt(1) + blank line(1) + content
-	contentHeight := m.height - 3
+	// Search box(3) + hint bar(1) + content
+	contentHeight := m.height - 4
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
@@ -429,7 +461,10 @@ func (m model) View() string {
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, listView, previewRendered)
 
-	return searchBar + content
+	hints := lipgloss.Place(m.width, 1, lipgloss.Center, lipgloss.Center,
+		veryDimStyle().Render("Enter paste · ^N copy · ^P save · ^D del · Tab expand · Esc quit"))
+
+	return searchBar + content + "\n" + hints
 }
 
 func padToHeight(s string, height int) string {
@@ -485,7 +520,6 @@ func (m model) renderList(width, height int) string {
 	var lines []string
 	for i := start; i < end; i++ {
 		entry := m.filtered[i]
-		pinned := m.meta.isPinned(entry.ID)
 
 		preview := entry.Preview
 		if entry.IsImage {
@@ -501,23 +535,22 @@ func (m model) renderList(width, height int) string {
 			preview = string(previewRunes[:maxLen-1]) + "…"
 		}
 
-		// Highlight fuzzy match characters
 		highlighted := highlightMatches(preview, m.matchIndices[i], entry.IsImage)
 
-		pin := "  "
-		if pinned {
-			pin = accentStyle().Render("● ")
+		indicator := "  "
+		if entry.IsSaved {
+			indicator = accentStyle().Render("★ ")
 		}
 
 		if i == m.cursor {
 			selBg := selectedRowStyle(width)
-			selPin := "  "
-			if pinned {
-				selPin = selectedPinStyle().Render("● ")
+			selInd := "  "
+			if entry.IsSaved {
+				selInd = selectedPinStyle().Render("★ ")
 			}
-			lines = append(lines, selBg.Render(selPin+selectedHighlight(preview, m.matchIndices[i], entry.IsImage)))
+			lines = append(lines, selBg.Render(selInd+selectedHighlight(preview, m.matchIndices[i], entry.IsImage)))
 		} else {
-			lines = append(lines, pin+highlighted)
+			lines = append(lines, indicator+highlighted)
 		}
 
 		// Dim separator between entries
@@ -602,13 +635,19 @@ func (m model) renderPreview(width, height int) string {
 
 	if entry.IsImage {
 		label := entry.ImageFmt + " · " + entry.ImageDim + " · " + entry.ImageSize
-		if src := m.meta.source(entry.ID); src != "" {
+		var src string
+		if entry.IsSaved {
+			src = entry.SavedSource
+		} else {
+			src = m.meta.source(entry.ID)
+		}
+		if src != "" {
 			label += " · " + src
 		}
 		return dimStyle().Render(label)
 	}
 
-	return renderTextPreview(*entry, width, height)
+	return renderTextPreview(*entry, m.snippets, width, height)
 }
 
 // runeIndex finds the first occurrence of needle in haystack (rune slices).
@@ -632,7 +671,7 @@ func runeIndex(haystack, needle []rune) int {
 }
 
 func (m model) visibleItems() int {
-	contentHeight := m.height - 3
+	contentHeight := m.height - 4 // search box(3) + hint bar(1)
 	// 2 lines per entry: content + separator
 	v := (contentHeight + 1) / 2
 	if v < 1 {
@@ -642,8 +681,8 @@ func (m model) visibleItems() int {
 }
 
 // openInEditor decodes a clipboard entry to a temp file and opens it in nvim (readonly).
-func openInEditor(e ClipEntry) tea.Cmd {
-	data, err := cliphistDecode(e.RawLine)
+func openInEditor(e ClipEntry, snippets *SnippetStore) tea.Cmd {
+	data, err := decodeEntry(e, snippets)
 	if err != nil || len(data) == 0 {
 		return nil
 	}

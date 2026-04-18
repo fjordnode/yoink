@@ -53,6 +53,10 @@ func main() {
 
 	// Handle paste action
 	if finalModel, ok := result.(model); ok && finalModel.pendingPaste != "" {
-		pasteToWindow(source, finalModel.pendingPaste)
+		if finalModel.pendingPaste == "__snippet__" {
+			pasteToWindowDirect(source)
+		} else {
+			pasteToWindow(source, finalModel.pendingPaste)
+		}
 	}
 }

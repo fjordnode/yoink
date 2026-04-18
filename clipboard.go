@@ -5,19 +5,25 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // cliphist format: [[ binary data 169 KiB png 988x606 ]]
 var imagePattern = regexp.MustCompile(`^\[\[ binary data (\d+ \w+) (\w+) (\d+x\d+) \]\]$`)
 
 type ClipEntry struct {
-	ID        string // numeric cliphist ID
+	ID        string // numeric cliphist ID, or "snippet:{id}" for saved
 	RawLine   string // full line from cliphist list (id\tpreview)
 	Preview   string // preview text (after tab)
 	IsImage   bool
 	ImageFmt  string // e.g. "png", "jpg"
 	ImageDim  string // e.g. "840x265"
 	ImageSize string // e.g. "169 KiB"
+	// Snippet fields
+	IsSaved     bool
+	SnippetID   string
+	SavedSource string
+	SavedTime   time.Time
 }
 
 func cliphistList() ([]ClipEntry, error) {
@@ -57,6 +63,13 @@ func parseLine(line string) ClipEntry {
 	}
 
 	return e
+}
+
+func decodeEntry(e ClipEntry, snippets *SnippetStore) ([]byte, error) {
+	if e.IsSaved {
+		return snippets.readData(e.SnippetID)
+	}
+	return cliphistDecode(e.RawLine)
 }
 
 func cliphistDecode(rawLine string) ([]byte, error) {

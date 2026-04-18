@@ -9,9 +9,10 @@ const (
 	keyPaste
 	keyCopy
 	keyDelete
-	keyPin
+	keySave
 	keyQuit
 	keyFullPreview
+	keyRefresh
 )
 
 func classifyKey(msg tea.KeyMsg) keyAction {
@@ -23,13 +24,15 @@ func classifyKey(msg tea.KeyMsg) keyAction {
 	case tea.KeyCtrlD:
 		return keyDelete
 	case tea.KeyCtrlP:
-		return keyPin
+		return keySave
 	case tea.KeyCtrlN:
 		return keyCopy
 	case tea.KeyCtrlY:
 		return keyCopy
 	case tea.KeyTab:
 		return keyFullPreview
+	case tea.KeyCtrlR:
+		return keyRefresh
 	}
 	return keyNone
 }

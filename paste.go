@@ -75,6 +75,16 @@ func captureSourceWindowNiri() SourceWindow {
 	}
 }
 
+func pasteToWindowDirect(sw SourceWindow) {
+	if sw.Address == "" {
+		return
+	}
+	script := buildPasteScript(sw)
+	c := exec.Command("bash", "-c", script)
+	c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	_ = c.Start()
+}
+
 func pasteToWindow(sw SourceWindow, rawLine string) {
 	// Decode and copy to clipboard before exiting
 	data, err := cliphistDecode(rawLine)

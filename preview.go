@@ -11,8 +11,8 @@ import (
 )
 
 // renderTextPreview decodes and word-wraps text for the preview pane.
-func renderTextPreview(entry ClipEntry, width, height int) string {
-	data, err := cliphistDecode(entry.RawLine)
+func renderTextPreview(entry ClipEntry, snippets *SnippetStore, width, height int) string {
+	data, err := decodeEntry(entry, snippets)
 	if err != nil {
 		return dimStyle().Render("(decode error)")
 	}
@@ -47,15 +47,14 @@ func cleanupTmpImage() {
 // to /dev/tty, bypassing bubbletea/lipgloss which would corrupt APC sequences.
 // Kitty renders images on a separate layer above text, so they persist
 // across bubbletea screen redraws.
-func showKittyImage(entry ClipEntry, col, row, cols, rows int) {
+func showKittyImage(entry ClipEntry, snippets *SnippetStore, col, row, cols, rows int) {
 	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
 	if err != nil {
 		return
 	}
 	defer tty.Close()
 
-	// Decode image data from cliphist
-	data, err := cliphistDecode(entry.RawLine)
+	data, err := decodeEntry(entry, snippets)
 	if err != nil || len(data) == 0 {
 		return
 	}

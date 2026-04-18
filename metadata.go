@@ -44,7 +44,6 @@ func (ft FlexTime) MarshalJSON() ([]byte, error) {
 }
 
 type EntryMeta struct {
-	Pinned    bool     `json:"pinned"`
 	Timestamp FlexTime `json:"timestamp"`
 	Source    string   `json:"source,omitempty"`
 }
@@ -100,16 +99,6 @@ func (s *MetadataStore) reconcile(ids []string) {
 			s.Entries[id] = EntryMeta{Timestamp: FlexTime{time.Now()}}
 		}
 	}
-}
-
-func (s *MetadataStore) togglePin(id string) {
-	meta := s.Entries[id]
-	meta.Pinned = !meta.Pinned
-	s.Entries[id] = meta
-}
-
-func (s *MetadataStore) isPinned(id string) bool {
-	return s.Entries[id].Pinned
 }
 
 func (s *MetadataStore) timestamp(id string) time.Time {
