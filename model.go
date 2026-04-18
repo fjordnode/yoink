@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -23,8 +25,8 @@ type model struct {
 	pendingPaste string
 	status       string
 	imageShown   bool
-	fullPreview  bool // full-screen image preview mode
-	loaded       bool // whether initial load has completed
+	fullPreview bool // full-screen image preview mode
+	loaded      bool // whether initial load has completed
 }
 
 // Messages
@@ -68,7 +70,7 @@ func (m *model) applyFilter() {
 		for _, e := range m.entries {
 			displayText := e.Preview
 			if e.IsImage {
-				displayText = "🖼️  " + e.ImageDim
+				displayText = "🖼️  [IMAGE] " + e.ImageDim
 			}
 			lowerRunes := []rune(strings.ToLower(displayText))
 			idx := runeIndex(lowerRunes, queryRunes)
@@ -151,6 +153,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case imageShownMsg:
 		return m, nil
 
+	case editorClosedMsg:
+		return m, loadEntriesCmd
+
 	case entriesLoadedMsg:
 		// Merge new entries without disrupting user's position
 		selectedID := ""
@@ -193,7 +198,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if msg.Type == tea.KeyUp {
 					dir = -1
 				}
-				// Find next image entry in direction
 				for i := m.cursor + dir; i >= 0 && i < len(m.filtered); i += dir {
 					if m.filtered[i].IsImage {
 						m.cursor = i
@@ -282,10 +286,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case keyFullPreview:
-			if e := m.selectedEntry(); e != nil && e.IsImage {
-				m.fullPreview = true
-				m.prevCursor = -1
-				return m, m.imageCmd()
+			if e := m.selectedEntry(); e != nil {
+				if e.IsImage {
+					m.fullPreview = true
+					m.prevCursor = -1
+					return m, m.imageCmd()
+				}
+				return m, openInEditor(*e)
 			}
 
 		case keyPin:
@@ -399,7 +406,7 @@ func (m model) View() string {
 
 	if m.fullPreview {
 		hint := dimStyle().Render("↑↓ cycle · Enter paste · Ctrl+N copy · any key to close")
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Bottom, hint)
+		return "\x1b[?25l" + lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Bottom, hint)
 	}
 
 	// Search prompt(1) + blank line(1) + content
@@ -482,7 +489,7 @@ func (m model) renderList(width, height int) string {
 
 		preview := entry.Preview
 		if entry.IsImage {
-			preview = "🖼️  " + entry.ImageDim
+			preview = "🖼️  [IMAGE] " + entry.ImageDim
 		}
 
 		maxLen := width - 4
@@ -633,3 +640,33 @@ func (m model) visibleItems() int {
 	}
 	return v
 }
+
+// openInEditor decodes a clipboard entry to a temp file and opens it in nvim (readonly).
+func openInEditor(e ClipEntry) tea.Cmd {
+	data, err := cliphistDecode(e.RawLine)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+
+	tmp, err := os.CreateTemp("", "yoink-*.txt")
+	if err != nil {
+		return nil
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return nil
+	}
+	tmp.Close()
+
+	c := exec.Command("nvim", "-R",
+		"+set nomodifiable",
+		"+autocmd VimEnter * nnoremap <buffer> <Esc> :q!<CR>",
+		tmp.Name())
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		os.Remove(tmp.Name())
+		return editorClosedMsg{}
+	})
+}
+
+type editorClosedMsg struct{}
