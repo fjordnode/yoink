@@ -13,6 +13,7 @@ const (
 	keyQuit
 	keyFullPreview
 	keyRefresh
+	keyEditImage
 )
 
 func classifyKey(msg tea.KeyMsg) keyAction {
@@ -33,6 +34,8 @@ func classifyKey(msg tea.KeyMsg) keyAction {
 		return keyFullPreview
 	case tea.KeyCtrlR:
 		return keyRefresh
+	case tea.KeyCtrlE:
+		return keyEditImage
 	}
 	return keyNone
 }

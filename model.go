@@ -28,6 +28,7 @@ type model struct {
 	imageShown   bool
 	fullPreview bool // full-screen image preview mode
 	loaded      bool // whether initial load has completed
+	pendingExec bool // external process launching, block further execs
 }
 
 // Messages
@@ -155,7 +156,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case editorClosedMsg:
-		return m, loadEntriesCmd
+		return m, tea.Batch(
+			loadEntriesCmd,
+			tea.Tick(300*time.Millisecond, func(_ time.Time) tea.Msg {
+				return execCooldownMsg{}
+			}),
+		)
+
+	case execCooldownMsg:
+		m.pendingExec = false
+		return m, nil
 
 	case entriesLoadedMsg:
 		// Merge new entries without disrupting user's position
@@ -311,12 +321,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case keyFullPreview:
-			if e := m.selectedEntry(); e != nil {
+			if e := m.selectedEntry(); e != nil && !m.pendingExec {
 				if e.IsImage {
 					m.fullPreview = true
 					m.prevCursor = -1
 					return m, m.imageCmd()
 				}
+				m.pendingExec = true
 				return m, openInEditor(*e, m.snippets)
 			}
 
@@ -335,6 +346,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						)
 					}
 				}
+			}
+
+		case keyEditImage:
+			if e := m.selectedEntry(); e != nil && e.IsImage && !m.pendingExec {
+				m.pendingExec = true
+				return m, openInSatty(*e, m.snippets)
 			}
 
 		case keyRefresh:
@@ -462,7 +479,7 @@ func (m model) View() string {
 	content := lipgloss.JoinHorizontal(lipgloss.Top, listView, previewRendered)
 
 	hints := lipgloss.Place(m.width, 1, lipgloss.Center, lipgloss.Center,
-		veryDimStyle().Render("Enter paste · ^N copy · ^P save · ^D del · Tab expand · Esc quit"))
+		veryDimStyle().Render("Enter paste · ^N copy · ^P save · ^D del · Tab expand · ^E annotate · Esc quit"))
 
 	return searchBar + content + "\n" + hints
 }
@@ -709,3 +726,29 @@ func openInEditor(e ClipEntry, snippets *SnippetStore) tea.Cmd {
 }
 
 type editorClosedMsg struct{}
+type execCooldownMsg struct{}
+
+func openInSatty(e ClipEntry, snippets *SnippetStore) tea.Cmd {
+	data, err := decodeEntry(e, snippets)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+
+	tmp, err := os.CreateTemp("", "yoink-*.png")
+	if err != nil {
+		return nil
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return nil
+	}
+	tmp.Close()
+
+	c := exec.Command("sh", "-c",
+		fmt.Sprintf("satty --filename '%s' --early-exit 2>/dev/null", tmp.Name()))
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		os.Remove(tmp.Name())
+		return editorClosedMsg{}
+	})
+}
