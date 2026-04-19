@@ -63,14 +63,17 @@ func showKittyImage(entry ClipEntry, snippets *SnippetStore, col, row, cols, row
 	// Save cursor, move to centered position
 	fmt.Fprintf(tty, "\x1b7\x1b[%d;%dH", row+offsetRow, col+offsetCol)
 
-	// Transmit via direct data (t=d) with chunking for cross-terminal compat
+	// Transmit via direct data (t=d) with chunking for cross-terminal compat.
+	// Use write-based chunking: split into 4096-byte base64 segments (aligned
+	// to 4-byte groups) so each chunk is independently valid base64.
+	const chunkSize = 4092 // 4 * 1023, safely under 4096 and aligned
 	first := true
 	for len(b64) > 0 {
 		chunk := b64
 		more := 0
-		if len(chunk) > 4096 {
-			chunk = b64[:4096]
-			b64 = b64[4096:]
+		if len(chunk) > chunkSize {
+			chunk = b64[:chunkSize]
+			b64 = b64[chunkSize:]
 			more = 1
 		} else {
 			b64 = ""

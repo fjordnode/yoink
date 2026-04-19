@@ -127,6 +127,8 @@ window-rule {
 
 Also works with Ghostty (`ghostty --class=yoink -e yoink`) or WezTerm (`wezterm start --class yoink -- yoink`).
 
+> **Note:** Image previews require the Kitty graphics protocol. Kitty and Ghostty have full support. WezTerm's implementation is incomplete — text, search, snippets, and paste all work, but image previews do not render.
+
 ## License
 
 MIT
