@@ -37,6 +37,15 @@ func renderTextPreview(entry ClipEntry, snippets *SnippetStore, width, height in
 // to /dev/tty, bypassing bubbletea/lipgloss which would corrupt APC sequences.
 // Kitty renders images on a separate layer above text, so they persist
 // across bubbletea screen redraws.
+var lastTmpImage string
+
+func cleanupTmpImage() {
+	if lastTmpImage != "" {
+		os.Remove(lastTmpImage)
+		lastTmpImage = ""
+	}
+}
+
 func showKittyImage(entry ClipEntry, snippets *SnippetStore, col, row, cols, rows int) {
 	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
 	if err != nil {
@@ -49,13 +58,27 @@ func showKittyImage(entry ClipEntry, snippets *SnippetStore, col, row, cols, row
 		return
 	}
 
+	cleanupTmpImage()
+
+	tmp, err := os.CreateTemp("", "yoink-img-*.png")
+	if err != nil {
+		return
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return
+	}
+	tmp.Close()
+	lastTmpImage = tmp.Name()
+
 	imgW, imgH := parseImageDim(entry.ImageDim)
 	fitC, fitR := fitImage(imgW, imgH, cols, rows)
 
 	offsetCol := (cols - fitC) / 2
 	offsetRow := (rows - fitR) / 2
 
-	b64 := base64.StdEncoding.EncodeToString(data)
+	pathB64 := base64.StdEncoding.EncodeToString([]byte(tmp.Name()))
 
 	// Clear all previous images
 	fmt.Fprint(tty, "\x1b_Ga=d,d=A\x1b\\")
@@ -63,29 +86,8 @@ func showKittyImage(entry ClipEntry, snippets *SnippetStore, col, row, cols, row
 	// Save cursor, move to centered position
 	fmt.Fprintf(tty, "\x1b7\x1b[%d;%dH", row+offsetRow, col+offsetCol)
 
-	// Transmit via direct data (t=d) with chunking for cross-terminal compat.
-	// Use write-based chunking: split into 4096-byte base64 segments (aligned
-	// to 4-byte groups) so each chunk is independently valid base64.
-	const chunkSize = 4092 // 4 * 1023, safely under 4096 and aligned
-	first := true
-	for len(b64) > 0 {
-		chunk := b64
-		more := 0
-		if len(chunk) > chunkSize {
-			chunk = b64[:chunkSize]
-			b64 = b64[chunkSize:]
-			more = 1
-		} else {
-			b64 = ""
-		}
-		if first {
-			fmt.Fprintf(tty, "\x1b_Ga=T,t=d,f=100,c=%d,r=%d,m=%d,q=2;%s\x1b\\",
-				fitC, fitR, more, chunk)
-			first = false
-		} else {
-			fmt.Fprintf(tty, "\x1b_Gm=%d,q=2;%s\x1b\\", more, chunk)
-		}
-	}
+	// Transmit and display via file path (reliable for kitty/ghostty)
+	fmt.Fprintf(tty, "\x1b_Ga=T,t=f,f=100,c=%d,r=%d,q=2;%s\x1b\\", fitC, fitR, pathB64)
 
 	// Restore cursor position
 	fmt.Fprint(tty, "\x1b8")
@@ -142,6 +144,7 @@ func fitImage(imgW, imgH, maxCols, maxRows int) (int, int) {
 
 // clearKittyImages removes all kitty graphics placements via /dev/tty.
 func clearKittyImages() {
+	cleanupTmpImage()
 	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
 	if err != nil {
 		return
