@@ -192,6 +192,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
+		} else {
+			for i, e := range m.filtered {
+				if !e.IsSaved {
+					m.cursor = i
+					break
+				}
+			}
 		}
 		m.prevCursor = -1
 		return m, m.imageCmd()
