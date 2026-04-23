@@ -36,22 +36,36 @@ func captureSourceWindow() SourceWindow {
 }
 
 func captureSourceWindowHyprland() SourceWindow {
-	out, err := exec.Command("hyprctl", "activewindow", "-j").Output()
+	out, err := exec.Command("hyprctl", "clients", "-j").Output()
 	if err != nil {
 		return SourceWindow{}
 	}
 
-	var data struct {
-		Address string `json:"address"`
-		Class   string `json:"class"`
+	var clients []struct {
+		Address        string `json:"address"`
+		Class          string `json:"class"`
+		FocusHistoryID int    `json:"focusHistoryID"`
 	}
-	if err := json.Unmarshal(out, &data); err != nil {
+	if err := json.Unmarshal(out, &clients); err != nil {
+		return SourceWindow{}
+	}
+
+	best := -1
+	for i, c := range clients {
+		if strings.ToLower(c.Class) == "yoink" {
+			continue
+		}
+		if best == -1 || c.FocusHistoryID < clients[best].FocusHistoryID {
+			best = i
+		}
+	}
+	if best == -1 {
 		return SourceWindow{}
 	}
 
 	return SourceWindow{
-		Address: data.Address,
-		Class:   strings.ToLower(data.Class),
+		Address: clients[best].Address,
+		Class:   strings.ToLower(clients[best].Class),
 	}
 }
 
