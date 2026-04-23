@@ -332,18 +332,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case keySave:
-			if e := m.selectedEntry(); e != nil && !e.IsSaved {
-				data, err := decodeEntry(*e, m.snippets)
-				if err == nil {
-					src := m.meta.source(e.ID)
-					if m.snippets.save(*e, data, src) == nil {
-						m.status = "Saved ★"
+			if e := m.selectedEntry(); e != nil {
+				if e.IsSaved {
+					if err := m.snippets.remove(e.SnippetID); err == nil {
+						m.status = "Unsaved"
 						return m, tea.Batch(
 							tea.Tick(statusDuration, func(_ time.Time) tea.Msg {
 								return statusClearMsg{}
 							}),
 							loadEntriesCmd,
 						)
+					}
+				} else {
+					data, err := decodeEntry(*e, m.snippets)
+					if err == nil {
+						src := m.meta.source(e.ID)
+						if m.snippets.save(*e, data, src) == nil {
+							m.status = "Saved ★"
+							return m, tea.Batch(
+								tea.Tick(statusDuration, func(_ time.Time) tea.Msg {
+									return statusClearMsg{}
+								}),
+								loadEntriesCmd,
+							)
+						}
 					}
 				}
 			}
